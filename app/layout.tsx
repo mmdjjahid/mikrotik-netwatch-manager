@@ -5,6 +5,9 @@ import { ThemeProvider } from '@/components/theme-provider';
 export const metadata: Metadata = {
   title: 'Netwatch Manager Commercial',
   description: 'MikroTik Netwatch + Telegram Alert Manager',
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export const viewport: Viewport = {

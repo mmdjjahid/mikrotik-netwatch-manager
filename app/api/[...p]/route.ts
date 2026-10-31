@@ -368,10 +368,24 @@ async function handleRequest(req: Request, { params }: { params: { p?: string[] 
         must_change: user.must_change,
       });
 
+      // Secure cookie handling:
+      // Chrome/Firefox refuse to store a cookie if 'Secure' is true over an unencrypted HTTP origin (e.g. http://172.16.17.3:3001).
+      // We detect if request is actually over HTTPS (direct or via X-Forwarded-Proto header) or explicitly forced.
+      const forwardedProto = req.headers.get('x-forwarded-proto');
+      const isHttps = forwardedProto
+        ? forwardedProto.toLowerCase() === 'https'
+        : req.url.startsWith('https://');
+      const secureFlag =
+        process.env.COOKIE_SECURE === 'true'
+          ? true
+          : process.env.COOKIE_SECURE === 'false'
+          ? false
+          : isHttps;
+
       const cookieStore = await cookies();
       cookieStore.set(COOKIE_NAME, token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
+        secure: secureFlag,
         sameSite: 'lax',
         path: '/',
         maxAge: 60 * 60 * 24 * 7,
@@ -379,7 +393,7 @@ async function handleRequest(req: Request, { params }: { params: { p?: string[] 
 
       recordActivityLog(user.username, 'LOGIN_SUCCESS', 'Logged in successfully', ip);
 
-      return jsonSuccess({
+      const res = jsonSuccess({
         user: {
           id: user.id,
           username: user.username,
@@ -387,13 +401,25 @@ async function handleRequest(req: Request, { params }: { params: { p?: string[] 
           must_change: user.must_change,
         },
       });
+
+      res.cookies.set(COOKIE_NAME, token, {
+        httpOnly: true,
+        secure: secureFlag,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 7,
+      });
+
+      return res;
     }
 
     // POST /api/logout
     if (p[0] === 'logout') {
       const cookieStore = await cookies();
       cookieStore.delete(COOKIE_NAME);
-      return jsonSuccess({ message: 'Logged out successfully' });
+      const res = jsonSuccess({ message: 'Logged out successfully' });
+      res.cookies.delete(COOKIE_NAME);
+      return res;
     }
 
     // GET /api/branding (Public so login page can display dynamic title, logo & message)

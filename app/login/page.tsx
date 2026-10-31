@@ -52,8 +52,8 @@ export default function LoginPage() {
         throw new Error(data.error || 'Failed to authenticate');
       }
 
-      router.push('/dashboard');
-      router.refresh();
+      // Full window navigation commits session cookie and ensures fresh page load
+      window.location.href = '/dashboard';
     } catch (err) {
       setError((err as Error).message);
     } finally {

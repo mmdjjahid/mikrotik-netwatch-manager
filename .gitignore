@@ -31,6 +31,7 @@ yarn-error.log*
 
 # test credentials
 tests/.env.test
+/scripts/
 
 # vercel
 .vercel

@@ -29,7 +29,7 @@ import {
 } from '@/lib/ros';
 import { verifyBotToken, sendTelegramTestMessage } from '@/lib/telegram';
 import { buildNetwatchScripts } from '@/lib/script';
-import { getAllSettings, updateSetting, bulkUpdateSettings } from '@/lib/settings';
+import { getAllSettings, updateSetting, bulkUpdateSettings, invalidateSettingsCache } from '@/lib/settings';
 import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -1885,6 +1885,7 @@ async function handleRequest(req: Request, { params }: { params: { p?: string[] 
         const buffer = Buffer.from(bytes);
 
         restoreDatabase(buffer);
+        invalidateSettingsCache();
         recordActivityLog(user.username, 'BACKUP_RESTORE', `Restored database from ${file.name || 'backup.db'}`, ip);
 
         return jsonSuccess({ message: 'Database restored successfully. Reloading...' });

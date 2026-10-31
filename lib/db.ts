@@ -91,11 +91,6 @@ export function restoreDatabase(buffer: Buffer): { success: boolean } {
       if (integrity?.quick_check !== 'ok') {
         throw new Error('Database integrity check failed: file appears corrupted.');
       }
-      const tables = testDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
-      const tableNames = new Set(tables.map((t) => t.name));
-      if (!tableNames.has('users') || !tableNames.has('settings')) {
-        throw new Error('Invalid database: backup is missing core Netwatch tables (users, settings).');
-      }
     } finally {
       testDb.close();
       if (existsSync(tempVerifyPath)) unlinkSync(tempVerifyPath);
@@ -137,8 +132,9 @@ export function restoreDatabase(buffer: Buffer): { success: boolean } {
   // 6. Overwrite main database file
   writeFileSync(DB_PATH, buffer);
 
-  // 7. Re-initialize database singleton
+  // 7. Re-initialize database singleton & auto-migrate/seed if tables are missing
   const restoredDb = getDb();
+  migrate(restoredDb);
   restoredDb.exec('PRAGMA wal_checkpoint(TRUNCATE);');
 
   return { success: true };

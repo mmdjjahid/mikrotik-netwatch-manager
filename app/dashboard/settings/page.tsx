@@ -308,7 +308,9 @@ export default function SettingsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Restore failed');
       setRestoreStatus('Database restored successfully! Reloading...');
-      setTimeout(() => window.location.reload(), 1500);
+      setTimeout(() => {
+        window.location.href = '/dashboard/settings';
+      }, 1500);
     } catch (err) {
       setRestoreStatus(`Error: ${(err as Error).message}`);
     } finally {
@@ -605,7 +607,13 @@ export default function SettingsPage() {
                 </div>
 
                 {restoreStatus && (
-                  <div className="rounded-xl bg-slate-100 dark:bg-slate-800 p-3 text-xs font-mono text-slate-900 dark:text-white">
+                  <div
+                    className={`rounded-xl p-3 text-xs font-mono ${
+                      restoreStatus.startsWith('Error')
+                        ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border border-rose-200 dark:border-rose-900/50'
+                        : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50'
+                    }`}
+                  >
                     {restoreStatus}
                   </div>
                 )}
@@ -613,7 +621,7 @@ export default function SettingsPage() {
                 <form onSubmit={handleRestore} className="space-y-3">
                   <input
                     type="file"
-                    accept=".db"
+                    accept=".db,application/octet-stream,application/x-sqlite3"
                     required
                     onChange={(e) => setRestoreFile(e.target.files?.[0] || null)}
                     className="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:opacity-90"

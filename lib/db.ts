@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, copyFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { hashSync } from 'bcryptjs';
 
@@ -43,6 +43,105 @@ export function getDb(): DatabaseSync {
   _db.exec('PRAGMA busy_timeout = 5000;');
   migrate(_db);
   return _db;
+}
+
+export function closeDb(): void {
+  if (_db) {
+    try {
+      _db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+    } catch {
+      // ignore
+    }
+    try {
+      _db.close();
+    } catch {
+      // ignore
+    }
+    _db = null;
+  }
+}
+
+export function createDatabaseBackup(): Buffer {
+  const db = getDb();
+  // Ensure all WAL changes are fully checkpointed into the main database file
+  db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+  return readFileSync(DB_PATH);
+}
+
+export function restoreDatabase(buffer: Buffer): { success: boolean } {
+  // 1. Minimum SQLite header check
+  if (buffer.length < 100) {
+    throw new Error('Invalid backup file: file size is too small to be a SQLite database.');
+  }
+
+  const magic = buffer.subarray(0, 16).toString('utf8');
+  if (!magic.startsWith('SQLite format 3')) {
+    throw new Error('Invalid backup file: header does not match SQLite 3 format.');
+  }
+
+  mkdirSync(DB_DIR, { recursive: true });
+
+  // 2. Validate integrity by opening a temporary test database
+  const tempVerifyPath = join(DB_DIR, `temp_verify_${Date.now()}.db`);
+  try {
+    writeFileSync(tempVerifyPath, buffer);
+    const testDb = new DatabaseSync(tempVerifyPath);
+    try {
+      const integrity = testDb.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
+      if (integrity?.quick_check !== 'ok') {
+        throw new Error('Database integrity check failed: file appears corrupted.');
+      }
+      const tables = testDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>;
+      const tableNames = new Set(tables.map((t) => t.name));
+      if (!tableNames.has('users') || !tableNames.has('settings')) {
+        throw new Error('Invalid database: backup is missing core Netwatch tables (users, settings).');
+      }
+    } finally {
+      testDb.close();
+      if (existsSync(tempVerifyPath)) unlinkSync(tempVerifyPath);
+      if (existsSync(tempVerifyPath + '-wal')) unlinkSync(tempVerifyPath + '-wal');
+      if (existsSync(tempVerifyPath + '-shm')) unlinkSync(tempVerifyPath + '-shm');
+    }
+  } catch (err) {
+    if (existsSync(tempVerifyPath)) unlinkSync(tempVerifyPath);
+    if (existsSync(tempVerifyPath + '-wal')) unlinkSync(tempVerifyPath + '-wal');
+    if (existsSync(tempVerifyPath + '-shm')) unlinkSync(tempVerifyPath + '-shm');
+    throw err;
+  }
+
+  // 3. Close currently active database connection
+  closeDb();
+
+  const walPath = DB_PATH + '-wal';
+  const shmPath = DB_PATH + '-shm';
+
+  // 4. Save safety copy of current database before replacing
+  const preRestoreBackup = join(DB_DIR, `netwatch.pre_restore_${Date.now()}.db`);
+  try {
+    if (existsSync(DB_PATH)) {
+      copyFileSync(DB_PATH, preRestoreBackup);
+    }
+  } catch (err) {
+    console.warn('Could not create safety pre-restore backup:', err);
+  }
+
+  // 5. Delete existing WAL and SHM files
+  // If not deleted, the old WAL logs will replay over the restored database or trigger WAL salt mismatch!
+  try {
+    if (existsSync(walPath)) unlinkSync(walPath);
+    if (existsSync(shmPath)) unlinkSync(shmPath);
+  } catch (err) {
+    console.warn('Could not remove old WAL/SHM files:', err);
+  }
+
+  // 6. Overwrite main database file
+  writeFileSync(DB_PATH, buffer);
+
+  // 7. Re-initialize database singleton
+  const restoredDb = getDb();
+  restoredDb.exec('PRAGMA wal_checkpoint(TRUNCATE);');
+
+  return { success: true };
 }
 
 function migrate(db: DatabaseSync) {

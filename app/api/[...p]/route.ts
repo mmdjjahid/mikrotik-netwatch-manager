@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getDb } from '@/lib/db';
+import { getDb, createDatabaseBackup, restoreDatabase } from '@/lib/db';
 import {
   COOKIE_NAME,
   createSessionToken,
@@ -1861,12 +1861,10 @@ async function handleRequest(req: Request, { params }: { params: { p?: string[] 
     // 12. BACKUP & RESTORE
     // ==========================================
     if (p[0] === 'backup') {
-      const dbPath = join(process.cwd(), 'data', 'netwatch.db');
-
       // GET /api/backup (Download database file)
       if (method === 'GET') {
         requirePermission(user, 'backup.download');
-        const fileBuffer = readFileSync(dbPath);
+        const fileBuffer = createDatabaseBackup();
         recordActivityLog(user.username, 'BACKUP_DOWNLOAD', 'Downloaded database backup', ip);
         return new NextResponse(fileBuffer, {
           headers: {
@@ -1886,15 +1884,10 @@ async function handleRequest(req: Request, { params }: { params: { p?: string[] 
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
 
-        // Backup existing database before replacement
-        const backupBeforeRestore = join(process.cwd(), 'data', `netwatch.pre_restore_${Date.now()}.db`);
-        copyFileSync(dbPath, backupBeforeRestore);
+        restoreDatabase(buffer);
+        recordActivityLog(user.username, 'BACKUP_RESTORE', `Restored database from ${file.name || 'backup.db'}`, ip);
 
-        // Write restored database
-        writeFileSync(dbPath, buffer);
-        recordActivityLog(user.username, 'BACKUP_RESTORE', `Restored database from ${file.name}`, ip);
-
-        return jsonSuccess({ message: 'Database restored successfully. Please refresh the page.' });
+        return jsonSuccess({ message: 'Database restored successfully. Reloading...' });
       }
     }
 
